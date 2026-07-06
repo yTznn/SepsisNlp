@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/Itens de Solução/">
+    <File Path="evolucao_assistencial.csv" />
+    <File Path="evolucao_clinica.csv" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/SepsisNlp.Api/SepsisNlp.Api.csproj" />
+    <Project Path="src/SepsisNlp.Application/SepsisNlp.Application.csproj" />
+    <Project Path="src/SepsisNlp.Domain/SepsisNlp.Domain.csproj" />
+    <Project Path="src/SepsisNlp.Infrastructure/SepsisNlp.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SepsisNlp.Application.Tests/SepsisNlp.Application.Tests.csproj" />
+    <Project Path="tests/SepsisNlp.Domain.Tests/SepsisNlp.Domain.Tests.csproj" />
+  </Folder>
+</Solution>
