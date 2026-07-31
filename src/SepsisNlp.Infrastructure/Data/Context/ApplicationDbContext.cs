@@ -15,6 +15,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<AttendanceMapping> AttendanceMappings { get; set; }
     public DbSet<PatientEvolution> PatientEvolutions { get; set; }
     public DbSet<EvolutionProfessionalMapping> EvolutionProfessionalMappings { get; set; }
+    public DbSet<InferenceResult> InferenceResults { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

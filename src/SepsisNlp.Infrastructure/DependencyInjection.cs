@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SepsisNlp.Application.Common.Interfaces;
 using SepsisNlp.Infrastructure.Data.Context;
+using SepsisNlp.Infrastructure.Services;
 
 namespace SepsisNlp.Infrastructure;
 
@@ -35,6 +36,15 @@ public static class DependencyInjection
                 // Essa linha faz o MassTransit criar as filas automaticamente!
                 cfg.ConfigureEndpoints(context);
             });
+        });
+
+        // ==========================================================
+        // INTEGRAÇÃO COM A IA EM PYTHON (TAILSCALE VPN)
+        // ==========================================================
+        services.AddHttpClient<IPythonNlpClient, PythonNlpClient>((provider, client) =>
+        {
+            var config = provider.GetRequiredService<IConfiguration>();
+            client.BaseAddress = new Uri(config["PythonApi:BaseUrl"]!);
         });
 
         return services;

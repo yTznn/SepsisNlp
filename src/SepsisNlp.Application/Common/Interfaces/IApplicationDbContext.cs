@@ -12,5 +12,7 @@ public interface IApplicationDbContext
     DbSet<AttendanceMapping> AttendanceMappings { get; }
     DbSet<PatientEvolution> PatientEvolutions { get; }
     DbSet<EvolutionProfessionalMapping> EvolutionProfessionalMappings { get; }
+    DbSet<InferenceResult> InferenceResults { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }
