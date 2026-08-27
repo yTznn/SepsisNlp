@@ -45,6 +45,9 @@ public static class DependencyInjection
         {
             var config = provider.GetRequiredService<IConfiguration>();
             client.BaseAddress = new Uri(config["PythonApi:BaseUrl"]!);
+
+            // 🚨 BLINDAGEM DE TEMPO: Dá 10 horas de paciência para o C# esperar a RTX 4060
+            client.Timeout = TimeSpan.FromHours(10);
         });
 
         return services;

@@ -2,15 +2,15 @@
 
 namespace SepsisNlp.Application.Common.Models;
 
-public record EvolucaoRequest(
-    [property: JsonPropertyName("texto_clinico")] string TextoClinico,
-    [property: JsonPropertyName("cenario")] int Cenario
-);
+// O C# agora manda o modelo e o prompt
+public record EvolucaoRequest(string texto_clinico, int cenario, string modelo_alvo, int prompt_id);
 
+// O C# agora recebe o texto_processado de volta (caso tenha sido traduzido)
 public record InferenciasResponse(
-    [property: JsonPropertyName("status")] string Status,
-    [property: JsonPropertyName("predicao")] string Predicao,
-    [property: JsonPropertyName("confianca")] float Confianca,
-    [property: JsonPropertyName("modelo")] string Modelo,
-    [property: JsonPropertyName("hardware_utilizado")] string HardwareUtilizado
+    string status,
+    string predicao,
+    float confianca,
+    string modelo,
+    string hardware_utilizado,
+    string? texto_processado
 );

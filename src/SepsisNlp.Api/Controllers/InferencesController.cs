@@ -15,8 +15,8 @@ public class InferencesController : ControllerBase
         _sender = sender;
     }
 
-    [HttpPost("run-smoke-test")]
-    public async Task<IActionResult> RunSmokeTest()
+    [HttpPost("execute-full-dataset-inference")]
+    public async Task<IActionResult> ExecuteFullDatasetInference()
     {
         // Dispara o nosso Maestro!
         var result = await _sender.Send(new RunExperimentCommand());

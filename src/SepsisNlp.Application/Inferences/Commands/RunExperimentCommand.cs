@@ -13,6 +13,7 @@ public class RunExperimentCommandHandler : IRequestHandler<RunExperimentCommand,
 {
     private readonly IApplicationDbContext _context;
     private readonly IPythonNlpClient _nlpClient;
+    private HashSet<string> _cacheProcessados = new();
 
     public RunExperimentCommandHandler(IApplicationDbContext context, IPythonNlpClient nlpClient)
     {
@@ -22,27 +23,34 @@ public class RunExperimentCommandHandler : IRequestHandler<RunExperimentCommand,
 
     public async Task<string> Handle(RunExperimentCommand request, CancellationToken cancellationToken)
     {
+        // 1. CARREGA O CHECKPOINT DO QUE JÁ FOI FEITO (NUNCA MAIS APAGA O BANCO)
+        var resultadosExistentes = await _context.InferenceResults
+            .Select(r => $"{r.PatientEvolutionId}_{r.ModeloUtilizado}_{r.Cenario}_{r.PromptId}")
+            .ToListAsync(cancellationToken);
+
+        _cacheProcessados = new HashSet<string>(resultadosExistentes);
         int totalAtendimentosProcessados = 0;
 
-        // =====================================================================
-        // FRENTE 1: GROUND TRUTH POSITIVO (100 Atendimentos com Sepse)
-        // =====================================================================
+        // =========================================================
+        // FRENTE 1: 100 PACIENTES COM SEPSE
+        // =========================================================
         var grupo1 = await _context.Attendances
             .Include(a => a.Evolutions)
             .Where(a => a.DischargeCid != null &&
                        (a.DischargeCid.StartsWith("A40") ||
                         a.DischargeCid.StartsWith("A41") ||
                         a.DischargeCid.StartsWith("R65.2") ||
-                        a.DischargeCid.StartsWith("R57.2")))
+                        a.DischargeCid.StartsWith("R57.2")) &&
+                        a.Evolutions.Any())
             .Take(100)
             .ToListAsync(cancellationToken);
 
         await ProcessarAtendimentos(grupo1, 1, cancellationToken);
         totalAtendimentosProcessados += grupo1.Count;
 
-        // =====================================================================
-        // FRENTE 2: CONTROLE LIMPO (100 Atendimentos Ortopédicos/Trauma SEM Sepse)
-        // =====================================================================
+        // =========================================================
+        // FRENTE 2: 100 PACIENTES CONTROLE LIMPO (TRAUMA)
+        // =========================================================
         var grupo2 = await _context.Attendances
             .Include(a => a.Evolutions)
             .Where(a => a.DischargeCid != null &&
@@ -50,16 +58,17 @@ public class RunExperimentCommandHandler : IRequestHandler<RunExperimentCommand,
                         a.DischargeCid.StartsWith("M") ||
                         a.DischargeCid.StartsWith("T")) &&
                        !a.DischargeCid.StartsWith("A") &&
-                       !a.DischargeCid.StartsWith("J15"))
+                       !a.DischargeCid.StartsWith("J15") &&
+                        a.Evolutions.Any())
             .Take(100)
             .ToListAsync(cancellationToken);
 
         await ProcessarAtendimentos(grupo2, 2, cancellationToken);
         totalAtendimentosProcessados += grupo2.Count;
 
-        // =====================================================================
-        // FRENTE 3: MIMETIZADORES CLÍNICOS (100 Atendimentos Falsos Positivos do Médico)
-        // =====================================================================
+        // =========================================================
+        // FRENTE 3: 100 PACIENTES MIMETIZADORES
+        // =========================================================
         var grupo3 = await _context.Attendances
             .Include(a => a.Evolutions)
             .Where(a => a.DischargeCid != null &&
@@ -71,65 +80,78 @@ public class RunExperimentCommandHandler : IRequestHandler<RunExperimentCommand,
                             e.RawText.ToLower().Contains("sepse") ||
                             e.RawText.ToLower().Contains("choque") ||
                             e.RawText.ToLower().Contains("protocolo de sepse") ||
-                            e.RawText.ToLower().Contains("infecção grave") ||
-                            e.RawText.ToLower().Contains("infecçao grave") ||
-                            e.RawText.ToLower().Contains("quadro infeccioso")))
+                            e.RawText.ToLower().Contains("infecção grave")))
             .Take(100)
             .ToListAsync(cancellationToken);
 
         await ProcessarAtendimentos(grupo3, 3, cancellationToken);
         totalAtendimentosProcessados += grupo3.Count;
 
-        // Salva todos os fragmentos e predições no PostgreSQL
-        await _context.SaveChangesAsync(cancellationToken);
-
-        return $"O Experimento foi um sucesso! {totalAtendimentosProcessados} atendimentos (3 Frentes) foram processados nota por nota na RTX 4060. Average Pooling validado.";
+        return $"BATERIA RETOMADA E CONCLUÍDA! O pipeline processou apenas as evoluções que faltavam.";
     }
 
     private async Task ProcessarAtendimentos(List<Attendance> atendimentos, int grupoId, CancellationToken cancellationToken)
     {
+        var modelosAlvo = new[] {
+            "emilyalsentzer/Bio_ClinicalBERT",
+            "dmis-lab/biobert-v1.1",
+            "pucpr/biobertpt-all",
+            "google/medgemma-1.5-4b-it"
+        };
+
+        var cenarios = new[] { 1, 2, 3 };
+
         foreach (var atendimento in atendimentos)
         {
-            // Processa cada evolução médica que compõe o contexto temporal do paciente
             foreach (var evolucao in atendimento.Evolutions)
             {
-                // CENÁRIO 1: TEXTO BRUTO
-                var reqCenario1 = new EvolucaoRequest(evolucao.RawText, 1);
-                var respCenario1 = await _nlpClient.ProcessarEvolucaoAsync(reqCenario1, cancellationToken);
-
-                if (respCenario1 != null)
-                {
-                    _context.InferenceResults.Add(new InferenceResult
-                    {
-                        AttendanceId = atendimento.Id,
-                        PatientEvolutionId = evolucao.Id,
-                        GrupoAmostral = grupoId,
-                        Cenario = 1,
-                        TextoUtilizado = evolucao.RawText, // Guarda a nota para o frontend!
-                        Predicao = respCenario1.Predicao,
-                        Confianca = (decimal)respCenario1.Confianca,
-                        ModeloUtilizado = respCenario1.Modelo
-                    });
-                }
-
-                // CENÁRIO 2: TEXTO LIMPO
                 var textoLimpo = TextNormalizerHelper.NormalizarTextoClinico(evolucao.RawText);
-                var reqCenario2 = new EvolucaoRequest(textoLimpo, 2);
-                var respCenario2 = await _nlpClient.ProcessarEvolucaoAsync(reqCenario2, cancellationToken);
 
-                if (respCenario2 != null)
+                foreach (var modelo in modelosAlvo)
                 {
-                    _context.InferenceResults.Add(new InferenceResult
+                    bool isLLM = modelo.Contains("gemma");
+                    var prompts = isLLM ? new[] { 2, 3 } : new[] { 1 };
+
+                    foreach (var promptId in prompts)
                     {
-                        AttendanceId = atendimento.Id,
-                        PatientEvolutionId = evolucao.Id,
-                        GrupoAmostral = grupoId,
-                        Cenario = 2,
-                        TextoUtilizado = textoLimpo, // Guarda o texto limpo para prova
-                        Predicao = respCenario2.Predicao,
-                        Confianca = (decimal)respCenario2.Confianca,
-                        ModeloUtilizado = respCenario2.Modelo
-                    });
+                        foreach (var cenario in cenarios)
+                        {
+                            // A CHAVE DE ACESSO DO CHECKPOINT
+                            string chaveAcesso = $"{evolucao.Id}_{modelo}_{cenario}_{promptId}";
+
+                            // SE JÁ EXISTE NO BANCO, PULA!
+                            if (_cacheProcessados.Contains(chaveAcesso))
+                            {
+                                continue;
+                            }
+
+                            string textoBase = (cenario == 1) ? evolucao.RawText : textoLimpo;
+
+                            var requestPayload = new EvolucaoRequest(textoBase, cenario, modelo, promptId);
+                            var response = await _nlpClient.ProcessarEvolucaoAsync(requestPayload, cancellationToken);
+
+                            if (response == null)
+                                throw new Exception($"[DEBUG HTTP] Requisição falhou para o modelo {modelo}!");
+
+                            _context.InferenceResults.Add(new InferenceResult
+                            {
+                                Id = Guid.NewGuid(),
+                                AttendanceId = atendimento.Id,
+                                PatientEvolutionId = evolucao.Id,
+                                GrupoAmostral = grupoId,
+                                Cenario = cenario,
+                                PromptId = promptId,
+                                TextoUtilizado = response.texto_processado ?? textoBase,
+                                Predicao = response.predicao,
+                                Confianca = (decimal)response.confianca,
+                                ModeloUtilizado = response.modelo
+                            });
+
+                            // SALVA NO BANCO IMEDIATAMENTE APÓS CADA TEXTO!
+                            await _context.SaveChangesAsync(cancellationToken);
+                            _cacheProcessados.Add(chaveAcesso);
+                        }
+                    }
                 }
             }
         }
